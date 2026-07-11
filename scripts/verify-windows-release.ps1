@@ -65,6 +65,14 @@ function Wait-UiElement($Process, [scriptblock]$Match, [int]$Seconds = 20) {
   } while ([DateTime]::UtcNow -lt $deadline -and -not $Process.HasExited)
   return $null
 }
+function Get-UiState($Process) {
+  $Process.Refresh()
+  if (-not $Process.MainWindowHandle) { return '<no main window>' }
+  $root = [Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
+  return (($root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
+      ForEach-Object { "$($_.Current.ControlType.ProgrammaticName):$($_.Current.Name)" } |
+      Where-Object { $_ -notlike '*:' } | Select-Object -Unique -First 20) -join ' | ')
+}
 function Invoke-UiButton($Process, [string]$Name) {
   $button = Wait-UiElement $Process { $_.Current.Name -eq $Name -and $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button }
   if (-not $button) { throw "Onboarding button was not accessible: $Name" }
@@ -147,7 +155,7 @@ try {
     $cleanupVerifierCredentials = $true
     Invoke-UiButton $app 'Open Echo'
     if (-not (Wait-UiElement $app { $_.Current.Name -eq 'Search everything' -and $_.Current.ControlType -eq [Windows.Automation.ControlType]::Edit })) {
-      throw 'Completing onboarding did not open the main Echo workspace.'
+      throw "Completing onboarding did not open the main Echo workspace. Visible UI: $(Get-UiState $app)"
     }
     if (-not [EchoReleaseCredential]::Exists('echo-onboarding-v1.app.luma.desktop')) {
       throw 'Native echo-onboarding-v1 completion marker was not stored.'
@@ -157,7 +165,7 @@ try {
 
     $app = Start-Process $exe -PassThru
     if (-not (Wait-UiElement $app { $_.Current.Name -eq 'Search everything' -and $_.Current.ControlType -eq [Windows.Automation.ControlType]::Edit })) {
-      throw 'Restart did not restore the main Echo workspace.'
+      throw "Restart did not restore the main Echo workspace. Visible UI: $(Get-UiState $app)"
     }
     if ((Wait-UiElement $app { $_.Current.Name -like 'Meet an assistant that remembers*' -or $_.Current.Name -eq 'Add your OpenAI API key' } 2)) {
       throw 'Onboarding reappeared after its native completion marker was stored.'
