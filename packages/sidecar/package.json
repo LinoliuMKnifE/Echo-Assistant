@@ -6,13 +6,14 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run && node --test scripts/package-validation.mjs",
-    "package": "tsc -p tsconfig.json && node scripts/package.mjs",
-    "package:windows": "tsc -p tsconfig.json && node scripts/package.mjs --target x86_64-pc-windows-msvc",
-    "package:macos:x64": "tsc -p tsconfig.json && node scripts/package.mjs --target x86_64-apple-darwin",
-    "package:macos:arm64": "tsc -p tsconfig.json && node scripts/package.mjs --target aarch64-apple-darwin",
+    "build:core": "pnpm --filter @luma/core build",
+    "build": "pnpm build:core && tsc -p tsconfig.json",
+    "typecheck": "pnpm build:core && tsc -p tsconfig.json --noEmit",
+    "test": "pnpm build:core && vitest run && node --test scripts/package-validation.mjs",
+    "package": "pnpm build:core && tsc -p tsconfig.json && node scripts/package.mjs",
+    "package:windows": "pnpm build:core && tsc -p tsconfig.json && node scripts/package.mjs --target x86_64-pc-windows-msvc",
+    "package:macos:x64": "pnpm build:core && tsc -p tsconfig.json && node scripts/package.mjs --target x86_64-apple-darwin",
+    "package:macos:arm64": "pnpm build:core && tsc -p tsconfig.json && node scripts/package.mjs --target aarch64-apple-darwin",
     "package:validate": "node scripts/package.mjs --validate"
   },
   "dependencies": {
