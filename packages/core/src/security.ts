@@ -22,7 +22,7 @@ export function encryptBackup(data: Uint8Array, password: string): Uint8Array {
 export function decryptBackup(payload: Uint8Array, password: string): Uint8Array {
   const data = Buffer.from(payload);
   if (data.length < 49 || !timingSafeEqual(data.subarray(0, 5), MAGIC))
-    throw new Error('Not a Luma backup');
+    throw new Error('Not an Echo backup');
   const salt = data.subarray(5, 21),
     nonce = data.subarray(21, 33),
     tag = data.subarray(33, 49),

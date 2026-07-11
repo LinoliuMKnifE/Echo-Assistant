@@ -1,6 +1,6 @@
 # Security threat model
 
-> **Current status:** The repository implements OS credential storage, core and native authenticated backups, HMAC replay checks, a native loopback listener, path rejection, untrusted-content wrapping, tool validation, and extension-envelope validation. Several controls below remain requirements because the two persistence services are not consolidated, pairing lacks UI/live testing, and update and most tool integrations are absent.
+> **Current status:** The repository implements OS credential storage, persistence-boundary redaction, authenticated backups, HMAC replay checks, strict loopback/CORS handling, pairing UI, path rejection, untrusted-content wrapping, tool validation, and extension-envelope validation. Signed installed-package interoperability, updates, and most tool integrations remain release or future-work boundaries.
 
 ## Assets and trust boundaries
 

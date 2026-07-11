@@ -1,11 +1,11 @@
 # Echo
 
-Echo is an early, local-first personal-assistant release candidate for Windows and macOS. This repository provides a tested TypeScript core library, a Tauri/React desktop backed primarily by a packaged Node/SQLite sidecar with a native Rust fallback, and a packaged Firefox extension. It is not yet a production release: provider-backed replies are not connected, several screens/actions remain illustrative, and live Firefox-to-installed-desktop interoperability is unverified.
+Echo is an early, local-first personal-assistant release candidate for Windows and macOS. This repository provides a tested TypeScript core library, a Tauri/React desktop backed primarily by a packaged Node/SQLite sidecar with a native Rust fallback, and a packaged Firefox extension. It is not yet a production release: signed clean-machine packages, live provider validation, and live Firefox-to-installed-desktop interoperability remain unverified.
 
 ## What works today
 
 - `@luma/core` contains validated memory, context, skill, scheduling, tool-permission, provider, backup, pairing-authentication, extension-request, and migration primitives. `LumaApplicationService` durably covers conversations, memories/profile provenance, projects, skill versions, schedules, audit, FTS search, portable encrypted backup/restore, and offline reopen scenarios through Node’s built-in SQLite API.
-- The desktop app builds as a React interface and Tauri host. The packaged Node sidecar owns the primary SQLite application service and authenticated loopback listener; the native Rust SQLite service remains a startup fallback. The host stores OpenAI and pairing credentials in the OS vault, and the UI exposes Firefox token issue and revoke controls.
+- The desktop app builds as a React interface and Tauri host. First-run setup collects the OpenAI key, and the packaged Node sidecar uses it for provider-backed chat while owning the primary SQLite application service and authenticated loopback listener. The native Rust SQLite service remains a startup fallback. The host stores OpenAI and pairing credentials in the OS vault, and the UI exposes Firefox token issue and revoke controls.
 - The Firefox extension builds and packages as an `.xpi`. It captures selected/current/full-page content or a visible screenshot only after a user action, signs requests to the fixed loopback contract, rejects receipt-only responses, and requires explicit confirmation that shared page context was handled as untrusted. Live Firefox pairing against an installed desktop package remains unverified.
 
 See [the implementation plan](docs/IMPLEMENTATION_PLAN.md) for intended scope and [the architecture overview](docs/ARCHITECTURE.md) for the implemented-versus-planned boundary.
@@ -57,7 +57,7 @@ The public product name is Echo. Compatibility-sensitive internal names remain L
 
 ## Repository map
 
-- `apps/desktop` — Tauri 2 and React interface prototype
+- `apps/desktop` — Tauri 2 and React desktop client
 - `apps/firefox-extension` — explicit-action Firefox WebExtension
 - `packages/core` — portable schemas and deterministic service primitives
 - `docs` — design, setup, security, and status documentation

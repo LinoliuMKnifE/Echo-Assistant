@@ -1,6 +1,6 @@
 # Memory design
 
-> **Current status:** The core includes a tested in-memory `MemoryStore` for hybrid-score experiments and a durable SQLite `LumaApplicationService` for memory/profile provenance, contradictions, forgetting, FTS conversation recall, project isolation, and close/reopen persistence. The desktop does not use it yet, and no embedding pipeline is implemented.
+> **Current status:** The core includes a tested in-memory `MemoryStore` for hybrid-score experiments and a durable SQLite `LumaApplicationService` for memory/profile provenance, contradictions, forgetting, FTS conversation recall, project isolation, and close/reopen persistence. The desktop uses the durable service through the sidecar. No embedding pipeline is implemented.
 
 SQLite is the intended authoritative store. The defined schema models profile, semantic, episodic, project, procedural, and working memories with provenance, confidence, importance, sensitivity, lifecycle status, timestamps, contradiction/supersession links, embedding state, and version.
 

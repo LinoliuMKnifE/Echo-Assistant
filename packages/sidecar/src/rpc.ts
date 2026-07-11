@@ -216,7 +216,7 @@ export class RpcRouter {
       schedules: service.listSchedules(),
       audit: service.listAudit(),
       settings: {
-        assistantName: 'Luma',
+        assistantName: 'Echo',
         memoryMode: 'low-risk',
         monthlyBudget: 25,
         offline: false,

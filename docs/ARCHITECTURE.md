@@ -10,19 +10,19 @@ When the sidecar starts successfully, `LumaApplicationService` and its SQLite da
 
 ```mermaid
 flowchart LR
-  UI["React UI"] --> Host["Tauri JSON commands"]
-  Core["Core + SQLite application service"] -. "not wired" .-> Host
-  Ext["Firefox extension client"] --> Listener["Tauri loopback listener"]
-  Listener --> Host
+  UI["React UI"] --> Sidecar["Authenticated Node sidecar RPC"]
+  UI -->|"startup fallback"| Host["Tauri native commands"]
+  Ext["Firefox extension client"] --> Local["Sidecar or fallback loopback listener"]
   Core --> Agent["Agent/context/memory primitives"]
   Core --> Security["Tool, backup, pairing primitives"]
   Core --> DB[("Node SQLite + FTS5")]
-  Agent -. "not invoked by desktop" .-> Provider["Responses adapter"]
+  Sidecar --> Core
+  Sidecar --> Provider["Responses adapter"]
 ```
 
 ## Node sidecar
 
-A second, additive path is landing alongside the diagram above: `@luma/core` running as a spawned Node **sidecar** process, owning SQLite persistence and the extension loopback listener directly, so the desktop no longer needs two competing persistence implementations. Full contract, packaging status, and fallback guarantees are in [`docs/SIDECAR.md`](./SIDECAR.md). Status, honestly:
+The primary runtime is `@luma/core` running as a spawned Node **sidecar** process, owning SQLite persistence, provider-backed chat, and the extension loopback listener. Full contract, packaging status, and fallback guarantees are in [`docs/SIDECAR.md`](./SIDECAR.md). Status, honestly:
 
 - **Implemented and tested:** Rust spawn/handshake/timeout logic, authenticated RPC, renderer selection, persistence/restart, extension protocol/CORS, bind-conflict handling, migration, and startup fallback.
 - **Packaged input verified on Windows:** `pnpm package:sidecar` produces the target-specific `externalBin` used before Tauri packaging. An installed MSI and macOS package remain unverified.
@@ -44,11 +44,11 @@ Only one of `Sidecar` and `Listener` is ever bound to `127.0.0.1:43117` at a tim
 
 ## Request lifecycle
 
-`LumaApplicationService` durably stores conversations, messages, projects, memories/profile provenance, skill versions, schedules, and audit events and is invoked by the desktop through the sidecar. `LumaAgent` retains the provider abstraction and deterministic context pipeline, but provider-backed replies are not yet connected to the desktop chat path.
+`LumaApplicationService` durably stores conversations, messages, projects, memories/profile provenance, skill versions, schedules, and audit events and is invoked by the desktop through the sidecar. The sidecar routes chat through the provider abstraction and deterministic context pipeline, using OpenAI when a key was supplied at startup and the mock provider otherwise.
 
 ## Boundaries
 
-- `@luma/core` contains portable schemas and deterministic primitives. It has no UI or broad filesystem access. It now also ships a Node sidecar entry point (`packages/sidecar`) intended to own SQLite persistence and the extension loopback contract directly, rather than duplicating that logic in Rust.
+- `@luma/core` contains portable schemas and deterministic primitives. It has no UI or broad filesystem access. `packages/sidecar` hosts that service, provider adapter, and extension loopback contract for the desktop.
 - Tauri owns the window/webview shell, OS credential access, settings, pairing token controls, and sidecar process lifecycle. The legacy Rust store/commands/listener remain the startup fallback.
 - React calls a browser-local adapter in Vite and, in Tauri, resolves to the authenticated sidecar HTTP adapter or native fallback. Automatic backup, notification execution, factory reset, and exports remain illustrative.
 - The extension has no provider access or API key. Explicit user actions send bounded page metadata/content with timestamp, nonce and HMAC using a pairing token.
@@ -60,4 +60,4 @@ Only one of `Sidecar` and `Listener` is ever bound to `127.0.0.1:43117` at a tim
 
 ## Cross-platform strategy
 
-Core code uses TypeScript, Web/Node standards, and Node’s built-in cross-platform SQLite API. Credential storage uses Rust `keyring`. Notifications, autostart, Tauri-owned platform data directories, and vector persistence are not implemented. CI defines Windows and macOS package jobs, but those remote jobs and macOS output have not yet been observed. No current component requires Docker.
+Core code uses TypeScript, Web/Node standards, and Node’s built-in cross-platform SQLite API. Credential storage uses Rust `keyring`. Notifications, autostart, and vector persistence are not implemented. CI defines Windows and macOS package jobs, but signed release runs and macOS output have not yet been observed. No current component requires Docker.

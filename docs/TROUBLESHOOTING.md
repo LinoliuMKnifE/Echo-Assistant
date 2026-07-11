@@ -1,14 +1,14 @@
 # Troubleshooting
 
-> **Current status:** This guide describes intended release behavior as well as developer checks. Recovery, diagnostic UI, database migration handling, and desktop extension connection are not yet implemented; do not infer those capabilities from the prototype screens.
+> **Current status:** Provider-backed chat, durable sidecar persistence, encrypted backup/restore, redacted diagnostics, and desktop pairing controls are implemented. Signed installed-package behavior remains a release gate; automatic migration recovery and sidecar restart after a mid-session crash are not implemented.
 
 ## Echo cannot answer
 
-Confirm internet access and API-key status in Settings. Local conversations, profile, memories, and skills should remain available offline. Rate-limit and provider-outage messages should preserve unsent text; retry after the displayed delay.
+Confirm internet access. If setup did not collect a key, restart with onboarding incomplete and enter it there; Settings-based key replacement is not implemented yet. Local conversations, profile, memories, and skills should remain available offline. Rate-limit and provider-outage messages should preserve unsent text; retry after the displayed delay.
 
 ## Firefox says disconnected
 
-Open the desktop app, confirm browser integration is enabled, then pair again using a newly generated token. The service must use `127.0.0.1:43117`; VPN/proxy rewriting of localhost can interfere. Never paste the token into a website or support message.
+Open Echo's Firefox pairing controls in **Backup & restore**, revoke the old token, issue a new one, and paste it into the extension. The service must use `127.0.0.1:43117`; VPN/proxy rewriting of localhost can interfere. Never paste the token into a website or support message.
 
 ## Database or migration error
 

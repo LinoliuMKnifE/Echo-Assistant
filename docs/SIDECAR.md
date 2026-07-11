@@ -23,7 +23,7 @@ This round is **additive**. The legacy Rust `AppDatabase` (SQLite via `rusqlite`
    ```
 
    - `token` is freshly random (32 bytes, hex-encoded) every app launch. It is generated in Rust (`rand::rngs::OsRng`) and never persisted; it is the bearer credential the renderer and the sidecar use to authenticate each other for this run only.
-   - `databasePath` / `dataDirectory` are derived from the same app-data root the legacy Rust store already uses (`%APPDATA%/Luma` on Windows, `$HOME/Luma` fallback elsewhere): `luma-core.db` and a `portable/` subdirectory for attachments/index metadata, so the sidecar's SQLite file lives next to (not inside) the legacy `luma.sqlite3`.
+   - `databasePath` / `dataDirectory` are derived from the same app-data root the legacy Rust store already uses (`%APPDATA%/Luma` on Windows, `$HOME/Luma` fallback elsewhere): `echo.sqlite3` and a `portable/` subdirectory for attachments/index metadata, so the sidecar's SQLite file lives next to (not inside) the legacy `luma.sqlite3`.
    - `openaiApiKey` / `pairingToken` are read from the existing OS keyring entries (`app.luma.desktop` / `openai-api-key` and `.../firefox-pairing-token`) using the same `keyring::Entry` calls the legacy commands already use. Either may be absent (keys not yet configured, no pairing issued) — the sidecar must tolerate both being missing.
 
 2. **Ready signal.** The sidecar prints exactly one line of JSON to stdout once it has finished its own setup (opening SQLite, binding its HTTP listener):
@@ -73,7 +73,7 @@ There is no scenario in the current code where both are started. If this invaria
 
 ## Fallback behavior (must always hold)
 
-Whether the sidecar is present, absent, unbuilt, mid-crash, or simply not yet packaged for the current platform, the desktop app must remain fully usable via the legacy Rust store, legacy commands, and legacy loopback listener. This is enforced structurally: the sidecar path is purely additive code in `apps/desktop/src-tauri/src/sidecar.rs`, invoked from one call site (`start_sidecar_or_fallback`) that always has an explicit `None` branch calling the pre-existing `start(state)` function unchanged.
+If the sidecar is absent, unbuilt, or fails its startup handshake, the desktop falls back to the legacy Rust store, commands, and loopback listener. That fallback preserves local operation but does not provide every sidecar-owned core/provider feature. A sidecar crash after startup is not automatically recovered; see Lifecycle above.
 
 ## Where the code lives
 

@@ -2,8 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { timingSafeEqual } from 'node:crypto';
 import {
   EXTENSION_PATH,
-  EXTENSION_ORIGIN,
   ExtensionRequestService,
+  isExtensionOrigin,
   MAX_EXTENSION_REQUEST_BYTES,
   PairingAuth,
   type ExtensionEnvelope,
@@ -71,13 +71,13 @@ async function handleExtensionRoute(
   extensionService: ExtensionRequestService | null,
 ): Promise<void> {
   if (req.method === 'OPTIONS') {
-    if (req.headers.origin !== EXTENSION_ORIGIN) {
+    if (!isExtensionOrigin(req.headers.origin)) {
       res.writeHead(403);
       res.end();
       return;
     }
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': EXTENSION_ORIGIN,
+      'Access-Control-Allow-Origin': req.headers.origin,
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers':
         'Content-Type, X-Luma-Timestamp, X-Luma-Nonce, X-Luma-Signature',
@@ -86,7 +86,7 @@ async function handleExtensionRoute(
     res.end();
     return;
   }
-  if (req.headers.origin !== EXTENSION_ORIGIN) {
+  if (!isExtensionOrigin(req.headers.origin)) {
     sendJson(res, 403, { ok: false, error: 'Extension origin denied' });
     return;
   }
@@ -106,7 +106,7 @@ async function handleExtensionRoute(
     headers: req.headers as Record<string, string | undefined>,
     exactBody: body,
   });
-  sendJson(res, result.status, result.body, EXTENSION_ORIGIN);
+  sendJson(res, result.status, result.body, req.headers.origin);
 }
 
 async function handleRendererRoute(

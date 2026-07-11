@@ -1,0 +1,144 @@
+name: Echo Windows release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Release version (for example 0.1.0)
+        required: true
+      prior_msi_url:
+        description: HTTPS URL for the prior signed MSI (required after 0.1.0)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      PFX_PATH: ${{ runner.temp }}\echo-signing.pfx
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.12.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - name: Require signing credentials
+        shell: pwsh
+        env:
+          CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:CERTIFICATE -or -not $env:PASSWORD) { throw 'Windows signing credentials are required.' }
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          $requested = if ('${{ github.event_name }}' -eq 'push') { '${{ github.ref_name }}' } else { '${{ inputs.release_version }}' }
+          $version = node scripts/verify-release-version.mjs $requested
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Run quality gates
+        run: pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build
+      - name: Run Rust quality gates
+        run: |
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+          cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - name: Run browser end-to-end tests
+        run: |
+          pnpm --filter @echo/desktop exec playwright install chromium
+          pnpm test:e2e
+      - name: Build unsigned release binaries
+        run: |
+          pnpm package:sidecar
+          pnpm --filter @echo/desktop tauri build --no-bundle
+      - name: Import signing certificate
+        shell: pwsh
+        env:
+          CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes($env:PFX_PATH, [Convert]::FromBase64String($env:CERTIFICATE))
+          $securePassword = ConvertTo-SecureString $env:PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $env:PFX_PATH -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword
+          "CERT_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
+          if (-not $certificate.HasPrivateKey) { throw 'Imported certificate has no private key.' }
+      - name: Sign desktop and sidecar
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter signtool.exe -Recurse | Where-Object FullName -Like '*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw 'signtool.exe was not found.' }
+          $binaries = @('apps\desktop\src-tauri\target\release\echo-desktop.exe', (Get-ChildItem 'apps\desktop\src-tauri\binaries\luma-sidecar-*.exe' | Select-Object -First 1 -ExpandProperty FullName))
+          foreach ($binary in $binaries) {
+            & $signtool sign /sha1 $env:CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $binary
+            if ($LASTEXITCODE) { throw "Signing failed: $binary" }
+            & $signtool verify /pa /v $binary
+            if ($LASTEXITCODE) { throw "Signature verification failed: $binary" }
+          }
+      - name: Bundle and sign MSI
+        shell: pwsh
+        run: |
+          pnpm --filter @echo/desktop tauri bundle --bundles msi --ci
+          if ($LASTEXITCODE) { throw 'MSI bundling failed.' }
+          $msi = Get-ChildItem 'apps\desktop\src-tauri\target\release\bundle\msi\Echo_*.msi' | Select-Object -First 1 -ExpandProperty FullName
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter signtool.exe -Recurse | Where-Object FullName -Like '*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /sha1 $env:CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $msi
+          if ($LASTEXITCODE) { throw 'MSI signing failed.' }
+          & $signtool verify /pa /v $msi
+          if ($LASTEXITCODE) { throw 'MSI signature verification failed.' }
+          "MSI_PATH=$msi" >> $env:GITHUB_ENV
+      - name: Strict install and first-run verification
+        shell: pwsh
+        env:
+          PRIOR_MSI_URL: ${{ inputs.prior_msi_url }}
+        run: |
+          if ($env:RELEASE_VERSION -ne '0.1.0' -and -not $env:PRIOR_MSI_URL) {
+            throw 'A prior signed MSI URL is required to verify upgrades after 0.1.0.'
+          }
+          $prior = $null
+          if ($env:PRIOR_MSI_URL) {
+            $prior = Join-Path $env:RUNNER_TEMP prior-echo.msi
+            Invoke-WebRequest $env:PRIOR_MSI_URL -OutFile $prior
+          }
+          ./scripts/verify-windows-release.ps1 -CleanAccountConfirmed -MsiPath $env:MSI_PATH -ExpectedVersion $env:RELEASE_VERSION -PriorMsiPath $prior
+          "RELEASE_MIGRATION=$(if ($prior) { 'signed prior MSI upgrade and rollback data preservation passed' } else { 'initial release legacy-data and uninstall preservation passed' })" >> $env:GITHUB_ENV
+      - name: Create checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash $env:MSI_PATH -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *$(Split-Path $env:MSI_PATH -Leaf)" | Set-Content SHA256SUMS.txt -Encoding ascii
+      - name: Write authoritative release evidence
+        shell: pwsh
+        env:
+          RELEASE_GATES: version-match,lint,format,typecheck,unit-integration,build,rust-fmt-check-test,playwright,authenticode,install-upgrade,onboarding-api-marker-relaunch,uninstall-rollback
+          RELEASE_VERIFICATION_STATUS: verified
+          RELEASE_SIGNATURE_STATUS: verified
+        run: node scripts/write-release-evidence.mjs windows $env:MSI_PATH
+      - name: Upload signed release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: echo-windows-signed
+          path: |
+            ${{ env.MSI_PATH }}
+            SHA256SUMS.txt
+            RELEASE_EVIDENCE.json
+            RELEASE_EVIDENCE.md
+            LICENSE
+            BUILD_REPORT.md
+            RELEASE_NOTES.md
+            THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:CERT_THUMBPRINT) { Remove-Item "Cert:\CurrentUser\My\$env:CERT_THUMBPRINT" -Force -ErrorAction SilentlyContinue }
+          Remove-Item $env:PFX_PATH -Force -ErrorAction SilentlyContinue

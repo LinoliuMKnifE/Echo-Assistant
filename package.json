@@ -17,6 +17,8 @@
     "build": "pnpm -r --if-present build",
     "package:sidecar": "pnpm --filter @luma/sidecar package",
     "package": "pnpm package:sidecar && pnpm --filter @echo/desktop tauri build && pnpm --filter @echo/firefox-extension package",
+    "release:verify:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-release.ps1",
+    "release:verify:firefox": "node scripts/verify-firefox-release.mjs",
     "diagnostics": "node scripts/diagnostics.mjs",
     "db:reset": "node scripts/reset-database.mjs --yes --path .luma-dev/luma.db"
   },

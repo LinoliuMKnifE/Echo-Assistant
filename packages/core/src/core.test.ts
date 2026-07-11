@@ -198,7 +198,7 @@ describe('security and tools', () => {
       remoteAddress: '127.0.0.1',
       exactBody,
       headers: {
-        Origin: 'moz-extension://luma-local-assistant@luma.local',
+        Origin: 'moz-extension://01234567-89ab-cdef-0123-456789abcdef',
         'X-Luma-Timestamp': String(timestamp),
         'X-Luma-Nonce': 'unique_nonce_123456',
         'X-Luma-Signature': auth.sign(timestamp, 'unique_nonce_123456', exactBody),
@@ -223,7 +223,7 @@ describe('security and tools', () => {
         ...request,
         exactBody: badBody,
         headers: {
-          Origin: 'moz-extension://luma-local-assistant@luma.local',
+          Origin: 'moz-extension://01234567-89ab-cdef-0123-456789abcdef',
           'X-Luma-Timestamp': String(badTimestamp),
           'X-Luma-Nonce': badNonce,
           'X-Luma-Signature': auth.sign(badTimestamp, badNonce, badBody),

@@ -481,6 +481,21 @@ mod tests {
             database.snapshot().unwrap()["settings"]["assistantName"],
             "Echo"
         );
+        database
+            .save_settings(&serde_json::json!({
+                "assistantName": "Nova",
+                "memoryMode": "low-risk",
+                "monthlyBudget": 25,
+                "offline": false
+            }))
+            .unwrap();
+        drop(database);
+        let reopened = AppDatabase::open(path.clone()).unwrap();
+        assert_eq!(
+            reopened.snapshot().unwrap()["settings"]["assistantName"],
+            "Nova"
+        );
+        drop(reopened);
         let _ = fs::remove_file(path);
     }
     #[test]

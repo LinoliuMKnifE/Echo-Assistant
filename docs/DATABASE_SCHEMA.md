@@ -1,6 +1,6 @@
 # Database schema
 
-`@luma/core` exports version-1 SQL as `sqliteSchema`. `LumaApplicationService` opens a real database through Node’s built-in SQLite API, applies the schema, and uses transactions for multi-row changes. Tests close and reopen database files to verify persistence. The Tauri host does not instantiate this service yet, and there is no multi-version migration runner or downgrade path.
+`@luma/core` exports version-1 SQL as `sqliteSchema`. `LumaApplicationService` opens a real database through Node’s built-in SQLite API, applies the schema, and uses transactions for multi-row changes. The Tauri host starts the sidecar that owns this service, and tests close and reopen database files to verify persistence. There is no multi-version migration runner or downgrade path.
 
 ## Main relationships
 
@@ -27,7 +27,7 @@ The SQL models immutable skill families/versions and global/project permission r
 
 ## Pairing and audit
 
-The schema has a place for a pairing-token hash. `PairingAuth` verifies timestamps/HMACs and rejects reused nonces in memory; `ExtensionRequestService` validates loopback request objects. No token repository or HTTP host is wired. Audit rows are modeled, but current audit events live in arrays and append-only database enforcement is not implemented.
+The schema has a place for a pairing-token hash. The desktop stores the active pairing token in the OS vault; the sidecar/native loopback host verifies timestamps and HMACs, rejects replayed nonces, and enforces the extension request contract. Audit rows are persisted, but append-only database enforcement is not implemented.
 
 ## Migration and recovery
 

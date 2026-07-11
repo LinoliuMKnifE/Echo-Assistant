@@ -15,3 +15,19 @@ export async function credentialStatus(): Promise<boolean> {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<boolean>('has_api_key');
 }
+
+export async function onboardingStatus(): Promise<boolean> {
+  if (!('__TAURI_INTERNALS__' in window))
+    return localStorage.getItem('luma.setupComplete') === 'yes';
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke<boolean>('is_onboarding_complete');
+}
+
+export async function completeOnboarding(): Promise<void> {
+  if (!('__TAURI_INTERNALS__' in window)) {
+    localStorage.setItem('luma.setupComplete', 'yes');
+    return;
+  }
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('complete_onboarding');
+}

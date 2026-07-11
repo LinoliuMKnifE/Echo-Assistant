@@ -1,0 +1,272 @@
+name: Echo macOS release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Release version (for example 0.1.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Signed universal macOS release
+    runs-on: macos-14
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Require release signing and notarization credentials
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          missing=()
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            [[ -n "${!name:-}" ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            printf 'Missing required release secret: %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.12.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate release version
+        shell: bash
+        run: |
+          requested='${{ github.ref_name }}'
+          [[ '${{ github.event_name }}' == push ]] || requested='${{ inputs.release_version }}'
+          echo "RELEASE_VERSION=$(node scripts/verify-release-version.mjs "$requested")" >> "$GITHUB_ENV"
+      - name: Run release quality gates
+        run: |
+          pnpm lint
+          pnpm format:check
+          pnpm typecheck
+          pnpm test
+          pnpm build
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+          cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - name: Run browser end-to-end tests
+        run: |
+          pnpm --filter @echo/desktop exec playwright install chromium
+          pnpm test:e2e
+      - name: Build universal sidecar
+        shell: bash
+        run: |
+          pnpm --filter @luma/sidecar package:macos:arm64
+          pnpm --filter @luma/sidecar package:macos:x64
+          lipo -create \
+            apps/desktop/src-tauri/binaries/luma-sidecar-aarch64-apple-darwin \
+            apps/desktop/src-tauri/binaries/luma-sidecar-x86_64-apple-darwin \
+            -output apps/desktop/src-tauri/binaries/luma-sidecar-universal-apple-darwin
+          lipo -verify_arch arm64 x86_64 apps/desktop/src-tauri/binaries/luma-sidecar-universal-apple-darwin
+      - name: Import Developer ID certificate
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          certificate="$RUNNER_TEMP/echo-signing.p12"
+          keychain="$RUNNER_TEMP/echo-signing.keychain-db"
+          keychain_password=$(openssl rand -base64 32)
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$certificate"
+          test -s "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -F "\"$APPLE_SIGNING_IDENTITY\""
+      - name: Build, sign, and notarize application and DMG
+        run: pnpm --filter @echo/desktop tauri build --target universal-apple-darwin --bundles app,dmg
+      - name: Verify signatures, notarization, contents, and launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          app="$bundle/macos/Echo.app"
+          dmg=$(find "$bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)
+          test -d "$app"
+          test -n "$dmg"
+          test -x "$app/Contents/MacOS/echo-desktop"
+          test -x "$app/Contents/MacOS/luma-sidecar"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/echo-desktop"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/luma-sidecar"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --verify --strict --verbose=2 "$app/Contents/MacOS/luma-sidecar"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          xcrun stapler validate "$dmg"
+
+          mount=$(mktemp -d)
+          hdiutil attach "$dmg" -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount" || true' EXIT
+          test -d "$mount/Echo.app"
+          codesign --verify --deep --strict --verbose=2 "$mount/Echo.app"
+          hdiutil detach "$mount"
+          trap - EXIT
+
+          smoke=$(mktemp -d)
+          export HOME="$smoke/home"
+          export TMPDIR="$smoke/tmp"
+          mkdir -p "$HOME" "$TMPDIR"
+          if security find-generic-password -s app.luma.desktop -a echo-onboarding-v1 >/dev/null 2>&1; then
+            echo 'Release runner already has Echo onboarding completion state; first-run smoke would be invalid.' >&2
+            exit 1
+          fi
+          "$app/Contents/MacOS/echo-desktop" > "$smoke/echo-smoke.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; rm -rf "$smoke"' EXIT
+          for _ in {1..40}; do
+            kill -0 "$pid" 2>/dev/null || { cat "$smoke/echo-smoke.log"; exit 1; }
+            sidecar_pid=$(pgrep -P "$pid" -x luma-sidecar || true)
+            [[ -n "$sidecar_pid" ]] && lsof -nP -a -p "$sidecar_pid" -iTCP:43117 -sTCP:LISTEN | grep -q LISTEN && break
+            sleep 0.5
+          done
+          [[ -n "${sidecar_pid:-}" ]]
+          lsof -nP -a -p "$sidecar_pid" -iTCP:43117 -sTCP:LISTEN | grep -q LISTEN
+          osascript - "$pid" <<'APPLESCRIPT'
+          on waitForText(proc, wanted)
+            repeat 80 times
+              if (entire contents of window 1 of proc as text) contains wanted then return
+              delay 0.25
+            end repeat
+            error "Timed out waiting for: " & wanted
+          end waitForText
+          on clickNamed(proc, wanted)
+            tell application "System Events"
+              repeat with element in entire contents of window 1 of proc
+                try
+                  if role of element is "AXButton" and name of element is wanted then
+                    click element
+                    return
+                  end if
+                end try
+              end repeat
+            end tell
+            error "Accessible button not found: " & wanted
+          end clickNamed
+          on fillApiKey(proc)
+            tell application "System Events"
+              repeat with element in entire contents of window 1 of proc
+                try
+                  if role of element is "AXTextField" then
+                    set value of element to "sk-echo-release-verifier-not-a-real-key"
+                    return
+                  end if
+                end try
+              end repeat
+            end tell
+            error "Accessible API key input not found."
+          end fillApiKey
+          on run argv
+            tell application "System Events"
+              if not UI elements enabled then error "Accessibility control is unavailable; full release onboarding cannot be verified."
+              set proc to first application process whose unix id is (item 1 of argv as integer)
+              repeat 80 times
+                if exists window 1 of proc then exit repeat
+                delay 0.25
+              end repeat
+              my waitForText(proc, "Meet an assistant that remembers")
+              my clickNamed(proc, "Continue")
+              my waitForText(proc, "Add your OpenAI API key")
+              my fillApiKey(proc)
+              my clickNamed(proc, "Continue")
+              my waitForText(proc, "Choose how Echo remembers")
+              my clickNamed(proc, "Continue")
+              my waitForText(proc, "Create a backup recovery key")
+              my clickNamed(proc, "Continue")
+              my waitForText(proc, "Everything looks good")
+              my clickNamed(proc, "Open Echo")
+              my waitForText(proc, "Search everything")
+            end tell
+          end run
+          APPLESCRIPT
+          security find-generic-password -s app.luma.desktop -a echo-onboarding-v1 >/dev/null
+          kill "$pid"
+          wait "$pid" || true
+          "$app/Contents/MacOS/echo-desktop" >> "$smoke/echo-smoke.log" 2>&1 &
+          pid=$!
+          osascript - "$pid" <<'APPLESCRIPT'
+          on run argv
+            tell application "System Events"
+              if not UI elements enabled then error "Accessibility control is unavailable."
+              set proc to first application process whose unix id is (item 1 of argv as integer)
+              repeat 80 times
+                if exists window 1 of proc and (entire contents of window 1 of proc as text) contains "Search everything" then return
+                delay 0.25
+              end repeat
+              error "Relaunch did not restore the main Echo workspace."
+            end tell
+          end run
+          APPLESCRIPT
+          kill "$pid"
+          wait "$pid" || true
+          security delete-generic-password -s app.luma.desktop -a openai-api-key >/dev/null 2>&1 || true
+          security delete-generic-password -s app.luma.desktop -a echo-onboarding-v1 >/dev/null 2>&1 || true
+          trap - EXIT
+          rm -rf "$smoke"
+          ditto -c -k --keepParent "$app" "$bundle/Echo.app.zip"
+      - name: Publish SHA-256 checksums
+        shell: bash
+        run: |
+          bundle=apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          shasum -a 256 "$bundle"/dmg/*.dmg "$bundle/Echo.app.zip" > "$bundle/SHA256SUMS.txt"
+          test -s "$bundle/SHA256SUMS.txt"
+          cat "$bundle/SHA256SUMS.txt"
+      - name: Write authoritative release evidence
+        shell: bash
+        env:
+          RELEASE_GATES: version-match,lint,format,typecheck,unit-integration,build,rust-fmt-check-test,playwright,universal-binaries,codesign,notarization,gatekeeper,dmg-mount,onboarding-api-marker-relaunch
+          RELEASE_MIGRATION: macOS initial install and isolated first-run persistence passed; upgrade requires a prior signed release artifact
+          RELEASE_VERIFICATION_STATUS: verified
+          RELEASE_SIGNATURE_STATUS: verified
+        run: |
+          bundle=apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+          dmg=$(find "$bundle/dmg" -maxdepth 1 -name '*.dmg' -print -quit)
+          node scripts/write-release-evidence.mjs macos "$dmg" "$bundle/Echo.app.zip"
+      - name: Upload verified macOS release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: echo-macos-universal-${{ github.run_number }}
+          path: |
+            apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/Echo.app.zip
+            apps/desktop/src-tauri/target/universal-apple-darwin/release/bundle/SHA256SUMS.txt
+            RELEASE_EVIDENCE.json
+            RELEASE_EVIDENCE.md
+            LICENSE
+            THIRD_PARTY_NOTICES.md
+            RELEASE_NOTES.md
+            BUILD_REPORT.md
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/echo-signing.keychain-db" 2>/dev/null || true
+          security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/echo-signing.p12"

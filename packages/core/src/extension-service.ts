@@ -4,8 +4,12 @@ import type { PairingAuth } from './security.js';
 export const EXTENSION_HOST = '127.0.0.1';
 export const EXTENSION_PORT = 43117;
 export const EXTENSION_PATH = '/v1/extension/request';
-export const EXTENSION_ORIGIN = 'moz-extension://luma-local-assistant@luma.local';
+export const EXTENSION_ORIGIN = 'moz-extension://01234567-89ab-cdef-0123-456789abcdef';
 export const MAX_EXTENSION_REQUEST_BYTES = 8_500_000;
+
+export function isExtensionOrigin(origin: string | undefined): origin is string {
+  return /^moz-extension:\/\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(origin ?? '');
+}
 
 const pageContext = z
   .object({
@@ -67,7 +71,7 @@ export class ExtensionRequestService {
     const headers = Object.fromEntries(
       Object.entries(request.headers).map(([name, value]) => [name.toLowerCase(), value]),
     );
-    if (headers.origin !== EXTENSION_ORIGIN)
+    if (!isExtensionOrigin(headers.origin))
       return { status: 403, body: { ok: false, error: 'Extension origin denied' } };
     const timestampText = headers['x-luma-timestamp'];
     const nonce = headers['x-luma-nonce'];

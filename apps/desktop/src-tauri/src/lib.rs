@@ -28,10 +28,10 @@ use tauri::State;
 const SERVICE: &str = "app.luma.desktop";
 const API_ACCOUNT: &str = "openai-api-key";
 const PAIRING_ACCOUNT: &str = "firefox-pairing-token";
+const ONBOARDING_ACCOUNT: &str = "echo-onboarding-v1";
 const ADDRESS: &str = "127.0.0.1:43117";
 const PATH: &str = "/v1/extension/request";
 const MAX: usize = 8_500_000;
-const EXTENSION_ORIGIN: &str = "moz-extension://luma-local-assistant@luma.local";
 const NONCE_TTL_MS: u128 = 60_000;
 const MAX_NONCES: usize = 4096;
 
@@ -70,14 +70,35 @@ fn now_ms() -> u128 {
 }
 
 #[tauri::command]
-fn store_api_key(api_key: String) -> Result<(), String> {
+fn store_api_key(
+    api_key: String,
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    sidecar_state: State<SidecarState>,
+    sidecar_process: State<Arc<SidecarProcess>>,
+) -> Result<(), String> {
     if !api_key.starts_with("sk-") || api_key.len() < 12 {
         return Err("That key does not look complete.".into());
     }
     keyring::Entry::new(SERVICE, API_ACCOUNT)
         .map_err(|_| "Secure credential storage is unavailable.")?
         .set_password(&api_key)
-        .map_err(|_| "The key could not be saved securely.".into())
+        .map_err(|_| "The key could not be saved securely.".to_string())?;
+
+    // The sidecar reads credentials only during its startup handshake. Restart it
+    // here so the key entered during onboarding powers the very first chat.
+    let process = sidecar_process.inner().as_ref();
+    sidecar::shutdown(process);
+    if let Ok(mut session) = sidecar_state.0.lock() {
+        *session = None;
+    }
+    start_sidecar_or_fallback(
+        &app,
+        state.inner().clone(),
+        sidecar_state.inner().clone(),
+        process,
+    );
+    Ok(())
 }
 #[tauri::command]
 fn has_api_key() -> bool {
@@ -85,6 +106,22 @@ fn has_api_key() -> bool {
         .and_then(|e| e.get_password())
         .map(|v| !v.is_empty())
         .unwrap_or(false)
+}
+fn onboarding_marker_is_complete(value: &str) -> bool {
+    value == "complete"
+}
+#[tauri::command]
+fn is_onboarding_complete() -> bool {
+    keyring::Entry::new(SERVICE, ONBOARDING_ACCOUNT)
+        .and_then(|entry| entry.get_password())
+        .is_ok_and(|value| onboarding_marker_is_complete(&value))
+}
+#[tauri::command]
+fn complete_onboarding() -> Result<(), String> {
+    keyring::Entry::new(SERVICE, ONBOARDING_ACCOUNT)
+        .map_err(|_| "Secure setup storage is unavailable.")?
+        .set_password("complete")
+        .map_err(|_| "Setup completion could not be saved securely.".into())
 }
 #[tauri::command]
 fn app_snapshot(state: State<AppState>) -> Result<Value, String> {
@@ -195,7 +232,7 @@ fn encrypt(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
 fn decrypt(data: &[u8], password: &str) -> Result<Vec<u8>, String> {
     const N: usize = 12;
     if data.len() < N + 29 || &data[..N] != b"LUMA-SQLITE\x01" {
-        return Err("Unsupported or damaged Luma backup".into());
+        return Err("Unsupported or damaged Echo backup".into());
     }
     let mut key = [0u8; 32];
     Argon2::default()
@@ -327,12 +364,25 @@ fn read_request(
         }
     }
 }
-fn cors(origin: Option<&str>) -> &'static str {
-    if origin == Some(EXTENSION_ORIGIN) {
-        "Access-Control-Allow-Origin: moz-extension://luma-local-assistant@luma.local\r\nAccess-Control-Allow-Methods: POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, X-Luma-Timestamp, X-Luma-Nonce, X-Luma-Signature\r\nVary: Origin\r\n"
-    } else {
-        ""
-    }
+fn valid_extension_origin(origin: &str) -> bool {
+    let Some(host) = origin.strip_prefix("moz-extension://") else {
+        return false;
+    };
+    host.len() == 36
+        && host.bytes().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()
+            }
+        })
+}
+fn cors(origin: Option<&str>) -> String {
+    origin
+        .filter(|value| valid_extension_origin(value))
+        .map_or_else(String::new, |value| {
+            format!("Access-Control-Allow-Origin: {value}\r\nAccess-Control-Allow-Methods: POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, X-Luma-Timestamp, X-Luma-Nonce, X-Luma-Signature\r\nVary: Origin\r\n")
+        })
 }
 fn respond(stream: &mut TcpStream, status: u16, body: Value, origin: Option<&str>) {
     let json = body.to_string();
@@ -418,7 +468,7 @@ fn secure_handle(mut stream: TcpStream, state: &AppState) {
         );
         return;
     }
-    if path != PATH || origin != Some(EXTENSION_ORIGIN) {
+    if path != PATH || !origin.is_some_and(valid_extension_origin) {
         respond(
             &mut stream,
             403,
@@ -604,6 +654,13 @@ fn start(state: AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_current_echo_marker_completes_onboarding() {
+        assert!(onboarding_marker_is_complete("complete"));
+        assert!(!onboarding_marker_is_complete("yes"));
+        assert!(!onboarding_marker_is_complete(""));
+    }
     fn state(token: &str) -> AppState {
         let path = std::env::temp_dir().join(format!("luma-http-{}.sqlite", database::id()));
         AppState {
@@ -646,8 +703,17 @@ mod tests {
     }
     #[test]
     fn realistic_preflight_and_signed_post() {
+        const EXTENSION_ORIGIN: &str = "moz-extension://01234567-89ab-cdef-0123-456789abcdef";
         let token = "test-pairing-token";
         let state = state(token);
+        let denied = exchange(
+            format!(
+                "OPTIONS {PATH} HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: https://example.com\r\n\r\n"
+            ),
+            state.clone(),
+        );
+        assert!(denied.starts_with("HTTP/1.1 403"));
+        assert!(!denied.contains("Access-Control-Allow-Origin"));
         let preflight=exchange(format!("OPTIONS {PATH} HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: {EXTENSION_ORIGIN}\r\nAccess-Control-Request-Method: POST\r\nAccess-Control-Request-Headers: x-luma-timestamp,x-luma-nonce,x-luma-signature,content-type\r\n\r\n"),state.clone());
         assert!(preflight.starts_with("HTTP/1.1 204"));
         assert!(preflight.contains(&format!("Access-Control-Allow-Origin: {EXTENSION_ORIGIN}")));
@@ -738,6 +804,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(state)
         .manage(sidecar_state)
+        .manage(sidecar_process.clone())
         .setup(move |app| {
             let handle = app.handle().clone();
             start_sidecar_or_fallback(
@@ -751,6 +818,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             store_api_key,
             has_api_key,
+            is_onboarding_complete,
+            complete_onboarding,
             app_snapshot,
             chat,
             remember,

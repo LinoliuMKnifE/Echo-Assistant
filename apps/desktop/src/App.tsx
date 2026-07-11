@@ -42,7 +42,7 @@ import {
   X,
 } from 'lucide-react';
 import { navLabels, type Memory, type MemoryMode, type Page, type Theme } from './model';
-import { storeApiKey } from './secure';
+import { completeOnboarding, credentialStatus, onboardingStatus, storeApiKey } from './secure';
 import {
   createApplicationAdapter,
   type ApplicationAdapter,
@@ -81,7 +81,9 @@ function App() {
   const [adapter] = useState(createApplicationAdapter);
   const [snapshot, setSnapshot] = useState<ApplicationSnapshot | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [setup, setSetup] = useState(() => localStorage.getItem('luma.setupComplete') === 'yes');
+  const [setup, setSetup] = useState<boolean | null>(() =>
+    '__TAURI_INTERNALS__' in window ? null : localStorage.getItem('luma.setupComplete') === 'yes',
+  );
   const [page, setPage] = useState<Page>('chat');
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem('luma.theme') as Theme) || 'dark',
@@ -106,6 +108,10 @@ function App() {
       removeEventListener('offline', update);
     };
   }, []);
+  useEffect(() => {
+    if (setup !== null) return;
+    void onboardingStatus().then(setSetup, () => setSetup(false));
+  }, [setup]);
   const reload = async () => {
     try {
       setSnapshot(await adapter.load());
@@ -139,11 +145,22 @@ function App() {
     setToasts((items) => [...items, { id, message }]);
     setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 3000);
   };
+  if (setup === null)
+    return (
+      <main className="setup-shell" aria-busy="true">
+        <div className="setup-card">
+          <div className="empty-state">
+            <RefreshCw className="spin" />
+            <h1>Opening Echo…</h1>
+          </div>
+        </div>
+      </main>
+    );
   if (!setup)
     return (
       <FirstRun
+        adapter={adapter}
         onComplete={() => {
-          localStorage.setItem('luma.setupComplete', 'yes');
           setSetup(true);
           toast('Setup complete — welcome to Echo');
         }}
@@ -1812,7 +1829,13 @@ function generateRecoveryKey() {
   return `ECHO-${chars.match(/.{1,4}/g)!.join('-')}`;
 }
 
-function FirstRun({ onComplete }: { onComplete: () => void }) {
+function FirstRun({
+  adapter,
+  onComplete,
+}: {
+  adapter: ApplicationAdapter;
+  onComplete: () => void;
+}) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState('Echo');
   const [key, setKey] = useState('');
@@ -1822,15 +1845,35 @@ function FirstRun({ onComplete }: { onComplete: () => void }) {
   const [model, setModel] = useState('Automatic (recommended)');
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState('');
+  const [existingKey, setExistingKey] = useState(false);
+  const [reuseExistingKey, setReuseExistingKey] = useState(false);
+  useEffect(() => {
+    void credentialStatus().then(setExistingKey, () => setExistingKey(false));
+  }, []);
   const next = async () => {
     if (step === 1) {
+      if (!reuseExistingKey && (!key.startsWith('sk-') || key.length < 12)) {
+        setError('That key does not look complete.');
+        return;
+      }
+      setError('');
+    }
+    if (step === 4) {
       setChecking(true);
       setError('');
       try {
-        await storeApiKey(key);
+        if (!reuseExistingKey) await storeApiKey(key);
+        await adapter.saveSettings({
+          assistantName: name.trim() || 'Echo',
+          memoryMode: mode,
+          monthlyBudget: 25,
+          offline: false,
+        });
+        await completeOnboarding();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'We could not validate that key.');
         setChecking(false);
+        setStep(1);
         return;
       }
       setChecking(false);
@@ -1922,6 +1965,16 @@ function FirstRun({ onComplete }: { onComplete: () => void }) {
                   </span>
                 )}
               </label>
+              {existingKey && (
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={reuseExistingKey}
+                    onChange={(event) => setReuseExistingKey(event.target.checked)}
+                  />
+                  Use the OpenAI key already saved on this device
+                </label>
+              )}
               <a
                 className="help-link"
                 href="https://platform.openai.com/api-keys"
@@ -2060,7 +2113,7 @@ function FirstRun({ onComplete }: { onComplete: () => void }) {
                   <Check />
                   <span>
                     <strong>AI connection</strong>
-                    <small>{key ? 'Key accepted' : 'Demo mode'}</small>
+                    <small>{reuseExistingKey ? 'Existing key selected' : 'Key accepted'}</small>
                   </span>
                 </div>
                 <div>
@@ -2091,7 +2144,7 @@ function FirstRun({ onComplete }: { onComplete: () => void }) {
           <button
             className="button primary large"
             onClick={next}
-            disabled={(step === 1 && !key) || checking}
+            disabled={(step === 1 && !key && !reuseExistingKey) || checking}
           >
             {checking ? (
               <>

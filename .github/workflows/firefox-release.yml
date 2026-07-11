@@ -1,0 +1,141 @@
+name: Echo Firefox release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Release version (for example 0.1.0)
+        required: true
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  sign-and-verify:
+    name: Signed XPI against installed Echo
+    runs-on: windows-latest
+    env:
+      PFX_PATH: ${{ runner.temp }}\echo-signing.pfx
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.12.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: browser-actions/setup-firefox@2ddc1281882c66dd6a359947714eed0a4b91afc1 # v1
+        with:
+          firefox-version: latest
+      - uses: browser-actions/setup-geckodriver@fac5b0424c584257f32cf12c5eb4ba86014c34f8 # latest
+      - name: Require release credentials and matching versions
+        shell: pwsh
+        env:
+          AMO_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:AMO_ISSUER -or -not $env:AMO_SECRET -or -not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_PASSWORD) { throw 'AMO and Windows signing credentials are required.' }
+          $requested = if ('${{ github.event_name }}' -eq 'push') { '${{ github.ref_name }}' } else { '${{ inputs.release_version }}' }
+          $version = node scripts/verify-release-version.mjs $requested
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run release quality gates
+        run: |
+          pnpm lint
+          pnpm format:check
+          pnpm typecheck
+          pnpm test
+          pnpm build
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml -- --check
+          cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked
+      - name: Build desktop and extension
+        run: |
+          pnpm package:sidecar
+          pnpm --filter @echo/desktop tauri build --no-bundle
+          pnpm --filter @echo/firefox-extension package
+          pnpm --filter @echo/firefox-extension exec web-ext lint --source-dir build --output text
+      - name: Import Windows signing certificate
+        shell: pwsh
+        env:
+          CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes($env:PFX_PATH, [Convert]::FromBase64String($env:CERTIFICATE))
+          $certificate = Import-PfxCertificate -FilePath $env:PFX_PATH -CertStoreLocation Cert:\CurrentUser\My -Password (ConvertTo-SecureString $env:PASSWORD -AsPlainText -Force)
+          "CERT_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
+          if (-not $certificate.HasPrivateKey) { throw 'Imported certificate has no private key.' }
+      - name: Sign desktop, sidecar, and MSI
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter signtool.exe -Recurse | Where-Object FullName -Like '*\x64\signtool.exe' | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw 'signtool.exe was not found.' }
+          $binaries = @('apps\desktop\src-tauri\target\release\echo-desktop.exe', (Get-ChildItem 'apps\desktop\src-tauri\binaries\luma-sidecar-*.exe' | Select-Object -First 1 -ExpandProperty FullName))
+          foreach ($binary in $binaries) {
+            & $signtool sign /sha1 $env:CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $binary
+            if ($LASTEXITCODE) { throw "Signing failed: $binary" }
+            & $signtool verify /pa $binary
+            if ($LASTEXITCODE) { throw "Signature verification failed: $binary" }
+          }
+          pnpm --filter @echo/desktop tauri bundle --bundles msi --ci
+          if ($LASTEXITCODE) { throw 'MSI bundling failed.' }
+          $msi = Get-ChildItem 'apps\desktop\src-tauri\target\release\bundle\msi\Echo_*.msi' | Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /sha1 $env:CERT_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $msi
+          if ($LASTEXITCODE) { throw 'MSI signing failed.' }
+          & $signtool verify /pa $msi
+          if ($LASTEXITCODE) { throw 'MSI signature verification failed.' }
+          "MSI_PATH=$msi" >> $env:GITHUB_ENV
+      - name: Sign extension with AMO
+        working-directory: apps/firefox-extension
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: pnpm exec web-ext sign --source-dir build --artifacts-dir signed --channel unlisted --api-key "$env:WEB_EXT_API_KEY" --api-secret "$env:WEB_EXT_API_SECRET"
+      - name: Normalize signed XPI
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem apps/firefox-extension/signed/*.xpi)
+          if ($files.Count -ne 1) { throw "Expected one AMO-signed XPI, found $($files.Count)." }
+          $target = Join-Path $files[0].DirectoryName "echo-local-assistant-$env:RELEASE_VERSION-signed.xpi"
+          Move-Item $files[0].FullName $target
+          "XPI_PATH=$target" >> $env:GITHUB_ENV
+      - name: Install signed Echo and exercise exact signed XPI
+        shell: powershell
+        run: ./scripts/verify-firefox-installed-release.ps1 -CleanAccountConfirmed -MsiPath $env:MSI_PATH -XpiPath $env:XPI_PATH
+      - name: Write release evidence
+        shell: pwsh
+        env:
+          RELEASE_GATES: version-match,lint,format,typecheck,unit-integration,build,rust-fmt-check-test,authenticode,amo-signature,installed-extension-round-trip,credential-cleanup
+          RELEASE_MIGRATION: installed signed MSI and exact AMO-signed XPI interoperability passed
+          RELEASE_VERIFICATION_STATUS: verified
+          RELEASE_SIGNATURE_STATUS: verified
+        run: |
+          node scripts/write-release-evidence.mjs firefox $env:XPI_PATH $env:MSI_PATH
+          Move-Item RELEASE_EVIDENCE.json apps/firefox-extension/signed/release-evidence.json
+          Move-Item RELEASE_EVIDENCE.md apps/firefox-extension/signed/release-evidence.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: echo-firefox-${{ github.run_id }}
+          path: |
+            apps/firefox-extension/signed/*.xpi
+            apps/firefox-extension/signed/release-evidence.json
+            apps/firefox-extension/signed/release-evidence.md
+            ${{ env.MSI_PATH }}
+            LICENSE
+            THIRD_PARTY_NOTICES.md
+            RELEASE_NOTES.md
+            BUILD_REPORT.md
+          if-no-files-found: error
+      - name: Remove signing material
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:CERT_THUMBPRINT) { Remove-Item "Cert:\CurrentUser\My\$env:CERT_THUMBPRINT" -Force -ErrorAction SilentlyContinue }
+          Remove-Item $env:PFX_PATH -Force -ErrorAction SilentlyContinue

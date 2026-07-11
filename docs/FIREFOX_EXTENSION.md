@@ -1,6 +1,6 @@
 # Firefox extension design
 
-> **Current status:** The extension client and a tested core request validator/authenticator exist and package successfully. Tauri starts a native loopback listener and has issue/revoke pairing commands, now exposed on the desktop app's Backup page with one-time token display and copy; no live Firefox interoperability test has run. Scenario 7 is therefore not end-to-end validated.
+> **Current status:** The extension client and request validator/authenticator package successfully. Tauri exposes issue/revoke pairing with one-time token display. The credential-gated Firefox release workflow defines the live stable-Firefox interoperability gate, but scenario 7 remains externally unverified until that workflow succeeds with AMO credentials.
 
 The extension is an optional client for the desktop localhost service; Echo remains fully usable without it. It provides popup quick actions and sidebar chat. Page data is read only after the user chooses **Send selected text**, **Ask about this page**, **Send full page text**, or **Send visible screenshot**.
 
@@ -18,3 +18,5 @@ The desktop pairing flow generates a high-entropy, unpadded base64url token for 
 6. Rotate/revoke tokens on unpair and rate-limit authentication failures.
 
 Successful chat and page-sharing responses must include a non-empty `answer` and an explicit `untrustedContextHandled` boolean. Page-sharing responses are rejected unless that flag is `true`; receipt-only acknowledgements are not shown as assistant answers. Client-side checks are defense in depth, not a substitute for server validation. Current client limits are 512 KB for page text, 8 MB for screenshots, and 2 MB for responses. Build with `pnpm --filter @echo/firefox-extension build`; package with `pnpm --filter @echo/firefox-extension package`. A deterministic protocol test proves signature compatibility, while a live Firefox-to-packaged-desktop check remains a separate release test.
+
+`.github/workflows/firefox-release.yml` is that release test. It has no unsigned mode: it Authenticode-signs and installs the exact Echo MSI on a disposable Windows runner, installs the exact AMO-signed XPI non-temporarily in stable Firefox, pairs through the installed desktop listener, and uses the extension itself to select fixture page text and send it to Echo. The gate uninstalls Echo, removes its temporary pairing credential, and publishes run-specific hashes and evidence. A local `web-ext build` XPI remains diagnostic-only; the credentialed workflow has not passed until GitHub records a successful run.
