@@ -1,6 +1,7 @@
+import { dirname, basename } from 'node:path';
 import { LumaApplicationService } from '@luma/core';
 import { createSidecarServer } from './server.js';
-import { migrateLegacyStoreIfNeeded } from './migration.js';
+import { LEGACY_DATABASE_NAME, migrateLegacyStoreIfNeeded } from './migration.js';
 
 const PORT = 43117;
 const HOST = '127.0.0.1';
@@ -63,11 +64,16 @@ async function readFirstLine(stream: NodeJS.ReadableStream): Promise<string> {
 async function main(): Promise<void> {
   const line = await readFirstLine(process.stdin);
   const startup = parseStartupMessage(line);
+  if (basename(startup.databasePath) === LEGACY_DATABASE_NAME) {
+    throw new Error('databasePath must not be the legacy luma.sqlite3');
+  }
   const service = new LumaApplicationService({
     databasePath: startup.databasePath,
     dataDirectory: startup.dataDirectory,
   });
-  const migrationSummary = migrateLegacyStoreIfNeeded(service, startup.dataDirectory);
+  // The legacy Rust store file sits next to the new database file, not necessarily
+  // inside dataDirectory (which is a separate directory for @luma/core's own files).
+  const migrationSummary = migrateLegacyStoreIfNeeded(service, dirname(startup.databasePath));
   if (migrationSummary) process.stderr.write(`${migrationSummary}\n`);
 
   const server = createSidecarServer({

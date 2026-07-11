@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -52,16 +52,14 @@ function createLegacyFixture(path: string): void {
 describe('legacy Rust store migration', () => {
   it('imports conversations, messages, memories, skills, and schedules, then renames the legacy file', () => {
     const root = workspace();
-    const dataDirectory = join(root, 'data');
-    mkdirSync(dataDirectory, { recursive: true });
-    const legacyPath = join(dataDirectory, LEGACY_DATABASE_NAME);
+    const legacyPath = join(root, LEGACY_DATABASE_NAME);
     createLegacyFixture(legacyPath);
 
     const service = new LumaApplicationService({
       databasePath: join(root, 'core.db'),
       dataDirectory: join(root, 'core-files'),
     });
-    const summary = migrateLegacyStoreIfNeeded(service, dataDirectory);
+    const summary = migrateLegacyStoreIfNeeded(service, root);
 
     expect(summary).toContain('1 conversations');
     expect(summary).toContain('1 memories');
@@ -87,31 +85,27 @@ describe('legacy Rust store migration', () => {
 
   it('is a no-op when the core database already has conversations', () => {
     const root = workspace();
-    const dataDirectory = join(root, 'data');
-    mkdirSync(dataDirectory, { recursive: true });
-    createLegacyFixture(join(dataDirectory, LEGACY_DATABASE_NAME));
+    createLegacyFixture(join(root, LEGACY_DATABASE_NAME));
 
     const service = new LumaApplicationService({
       databasePath: join(root, 'core.db'),
       dataDirectory: join(root, 'core-files'),
     });
     service.createConversation('Existing conversation');
-    const summary = migrateLegacyStoreIfNeeded(service, dataDirectory);
+    const summary = migrateLegacyStoreIfNeeded(service, root);
 
     expect(summary).toBeNull();
-    expect(existsSync(join(dataDirectory, LEGACY_DATABASE_NAME))).toBe(true);
+    expect(existsSync(join(root, LEGACY_DATABASE_NAME))).toBe(true);
     service.close();
   });
 
   it('is a no-op when no legacy file exists', () => {
     const root = workspace();
-    const dataDirectory = join(root, 'data');
-    mkdirSync(dataDirectory, { recursive: true });
     const service = new LumaApplicationService({
       databasePath: join(root, 'core.db'),
       dataDirectory: join(root, 'core-files'),
     });
-    expect(migrateLegacyStoreIfNeeded(service, dataDirectory)).toBeNull();
+    expect(migrateLegacyStoreIfNeeded(service, root)).toBeNull();
     service.close();
   });
 });

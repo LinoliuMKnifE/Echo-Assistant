@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import type { LumaApplicationService } from '@luma/core';
 
 // ponytail: legacy host store is the Rust AppDatabase (apps/desktop/src-tauri/src/database.rs),
-// a SQLite file named luma.sqlite3 under the platform data dir, with its own table names
-// (conversations/messages/memories/skills/skill_versions/schedules/audit/settings). Its schema
-// differs from @luma/core's sqliteSchema (see packages/core/src/database.ts), so we read rows
-// with rusqlite's column names and re-insert them through LumaApplicationService's public API
-// rather than sharing a schema.
+// a SQLite file named luma.sqlite3 under the platform data dir. It uses the SAME table names as
+// @luma/core's sqliteSchema (conversations/messages/memories/skills/skill_versions/schedules/
+// audit/settings) but a DIFFERENT column schema (see packages/core/src/database.ts) - this is
+// exactly why the two must never share one database file. So we read rows with rusqlite's
+// column names and re-insert them through LumaApplicationService's public API rather than
+// sharing a schema.
 
 export const LEGACY_DATABASE_NAME = 'luma.sqlite3';
 

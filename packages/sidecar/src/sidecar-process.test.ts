@@ -273,7 +273,7 @@ describe('sidecar process (integration)', () => {
     const root = workspace();
     const dataDirectory = join(root, 'data');
     mkdirSync(dataDirectory, { recursive: true });
-    const legacyPath = join(dataDirectory, LEGACY_DATABASE_NAME);
+    const legacyPath = join(root, LEGACY_DATABASE_NAME);
     const legacy = new DatabaseSync(legacyPath);
     legacy.exec(`
       CREATE TABLE conversations(id TEXT PRIMARY KEY,title TEXT NOT NULL,summary TEXT NOT NULL DEFAULT '',project_id TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -304,5 +304,16 @@ describe('sidecar process (integration)', () => {
     const { existsSync } = await import('node:fs');
     expect(existsSync(legacyPath)).toBe(false);
     expect(existsSync(`${legacyPath}.migrated`)).toBe(true);
+  }, 20_000);
+
+  it('rejects a startup whose databasePath is the legacy luma.sqlite3 file', async () => {
+    const root = workspace();
+    const { ready } = await startSidecar({
+      token: 'renderer-secret-token',
+      databasePath: join(root, LEGACY_DATABASE_NAME),
+      dataDirectory: join(root, 'data'),
+    });
+    expect(ready.ready).toBe(false);
+    if (!ready.ready) expect(ready.error).toMatch(/legacy luma\.sqlite3/);
   }, 20_000);
 });

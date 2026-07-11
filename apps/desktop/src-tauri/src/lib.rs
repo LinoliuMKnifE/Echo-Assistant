@@ -56,6 +56,12 @@ fn data_dir() -> PathBuf {
 fn data_path() -> PathBuf {
     data_dir().join("luma.sqlite3")
 }
+/// The @luma/core sidecar's own database file, distinct from `data_path()`'s
+/// legacy `luma.sqlite3` (the Rust fallback store's file, shares table names
+/// with a different schema — see packages/sidecar/src/migration.ts).
+fn sidecar_data_path() -> PathBuf {
+    data_dir().join("echo.sqlite3")
+}
 fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -683,7 +689,7 @@ fn start_sidecar_or_fallback(
     sidecar_state: SidecarState,
     sidecar_process: &SidecarProcess,
 ) {
-    let database_path = data_path().to_string_lossy().into_owned();
+    let database_path = sidecar_data_path().to_string_lossy().into_owned();
     let data_directory = data_dir().join("portable").to_string_lossy().into_owned();
     let openai_api_key = keyring::Entry::new(SERVICE, API_ACCOUNT)
         .and_then(|e| e.get_password())
