@@ -78,7 +78,7 @@ function EchoMark() {
 }
 
 function App() {
-  const [adapter] = useState(createApplicationAdapter);
+  const [adapter, setAdapter] = useState(createApplicationAdapter);
   const [snapshot, setSnapshot] = useState<ApplicationSnapshot | null>(null);
   const [loadError, setLoadError] = useState('');
   const [setup, setSetup] = useState<boolean | null>(() =>
@@ -124,7 +124,7 @@ function App() {
   };
   useEffect(() => {
     if (setup) void reload();
-  }, [setup]);
+  }, [setup, adapter]);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -161,6 +161,7 @@ function App() {
       <FirstRun
         adapter={adapter}
         onComplete={() => {
+          setAdapter(createApplicationAdapter());
           setSetup(true);
           toast('Setup complete — welcome to Echo');
         }}

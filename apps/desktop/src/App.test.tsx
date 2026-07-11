@@ -95,6 +95,11 @@ describe('Echo desktop', () => {
       },
     });
     expect(invokeMock).toHaveBeenCalledWith('complete_onboarding');
+    await vi.waitFor(() =>
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === 'sidecar_session'),
+      ).toHaveLength(2),
+    );
     expect(invokeMock).not.toHaveBeenCalledWith('store_api_key', expect.anything());
     const saveIndex = invokeMock.mock.calls.findIndex(([command]) => command === 'save_settings');
     const completeIndex = invokeMock.mock.calls.findIndex(
