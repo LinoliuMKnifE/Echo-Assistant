@@ -269,7 +269,7 @@ describe('sidecar process (integration)', () => {
     if (!second.ready.ready) expect(second.ready.error).toMatch(/address|use|bind/i);
   }, 20_000);
 
-  it('migrates a legacy Rust store on first boot and renames the legacy file', async () => {
+  it('migrates a legacy Rust store on first boot and retains the live legacy file', async () => {
     const root = workspace();
     const dataDirectory = join(root, 'data');
     mkdirSync(dataDirectory, { recursive: true });
@@ -302,7 +302,7 @@ describe('sidecar process (integration)', () => {
     expect(snapshot.result.conversations.some((c) => c.title === 'Legacy chat')).toBe(true);
 
     const { existsSync } = await import('node:fs');
-    expect(existsSync(legacyPath)).toBe(false);
+    expect(existsSync(legacyPath)).toBe(true);
     expect(existsSync(`${legacyPath}.migrated`)).toBe(true);
   }, 20_000);
 

@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, renameSync } from 'node:fs';
+import { copyFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { LumaApplicationService } from '@luma/core';
 
@@ -23,9 +23,10 @@ export function migrateLegacyStoreIfNeeded(
 ): string | null {
   if (service.listConversations().length > 0) return null;
   const legacyPath = join(dataDirectory, LEGACY_DATABASE_NAME);
-  if (!existsSync(legacyPath)) return null;
+  const migratedPath = `${legacyPath}.migrated`;
+  if (!existsSync(legacyPath) || existsSync(migratedPath)) return null;
   const summary = importLegacyDatabase(service, legacyPath);
-  renameSync(legacyPath, `${legacyPath}.migrated`);
+  copyFileSync(legacyPath, migratedPath);
   return summary;
 }
 

@@ -50,7 +50,7 @@ function createLegacyFixture(path: string): void {
 }
 
 describe('legacy Rust store migration', () => {
-  it('imports conversations, messages, memories, skills, and schedules, then renames the legacy file', () => {
+  it('imports once and retains the live legacy database', () => {
     const root = workspace();
     const legacyPath = join(root, LEGACY_DATABASE_NAME);
     createLegacyFixture(legacyPath);
@@ -77,8 +77,10 @@ describe('legacy Rust store migration', () => {
     expect(service.listSkills()[0]?.name).toBe('Inventory check');
     expect(service.listSchedules()[0]?.prompt).toBe('Review inventory');
 
-    expect(existsSync(legacyPath)).toBe(false);
+    expect(existsSync(legacyPath)).toBe(true);
     expect(existsSync(`${legacyPath}.migrated`)).toBe(true);
+    expect(migrateLegacyStoreIfNeeded(service, root)).toBeNull();
+    expect(service.listConversations()).toHaveLength(1);
 
     service.close();
   });
