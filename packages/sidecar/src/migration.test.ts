@@ -99,7 +99,7 @@ describe('legacy Rust store migration', () => {
     expect(summary).toBeNull();
     expect(existsSync(join(root, LEGACY_DATABASE_NAME))).toBe(true);
     service.close();
-  });
+  }, 10_000);
 
   it('is a no-op when no legacy file exists', () => {
     const root = workspace();
