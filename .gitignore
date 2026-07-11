@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+target/
+.env
+*.db
+*.db-shm
+*.db-wal
+artifacts/
+playwright-report/
+test-results/
+*.tsbuildinfo
+packages/sidecar/.pkg-cache/
+graphify-out/
+apps/desktop/src-tauri/binaries/

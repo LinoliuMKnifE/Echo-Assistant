@@ -1,0 +1,88 @@
+name: Echo CI and packages
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Echo desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Check formatting
+        run: pnpm format:check
+      - name: Type-check
+        run: pnpm typecheck
+      - name: Test
+        run: pnpm test
+      - name: Install Playwright browser
+        run: pnpm --filter @echo/desktop exec playwright install chromium
+      - name: Browser end-to-end tests
+        run: pnpm test:e2e
+      - name: Build workspaces
+        run: pnpm build
+      - name: Package Tauri sidecar
+        run: pnpm package:sidecar
+      - name: Package Windows MSI
+        if: runner.os == 'Windows'
+        run: pnpm --filter @echo/desktop tauri build --bundles msi
+      - name: Package macOS application and DMG
+        if: runner.os == 'macOS'
+        run: pnpm --filter @echo/desktop tauri build --bundles app,dmg
+      - name: Upload desktop packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: echo-desktop-${{ runner.os }}
+          path: apps/desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: error
+
+  firefox:
+    name: Echo Firefox extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build and package XPI
+        run: pnpm --filter @echo/firefox-extension package
+      - name: Validate Firefox package source
+        run: pnpm --filter @echo/firefox-extension exec web-ext lint --source-dir build --output text
+      - name: Upload Firefox package
+        uses: actions/upload-artifact@v4
+        with:
+          name: echo-firefox-extension
+          path: apps/firefox-extension/artifacts/echo-*.xpi
+          if-no-files-found: error

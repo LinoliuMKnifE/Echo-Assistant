@@ -1,0 +1,32 @@
+{
+  "name": "echo",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "dev": "pnpm -r --parallel --if-present dev",
+    "dev:desktop": "pnpm --filter @echo/desktop dev",
+    "dev:extension": "pnpm --filter @echo/firefox-extension dev",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm -r --if-present test:e2e",
+    "build": "pnpm -r --if-present build",
+    "package:sidecar": "pnpm --filter @luma/sidecar package",
+    "package": "pnpm package:sidecar && pnpm --filter @echo/desktop tauri build && pnpm --filter @echo/firefox-extension package",
+    "diagnostics": "node scripts/diagnostics.mjs",
+    "db:reset": "node scripts/reset-database.mjs --yes --path .luma-dev/luma.db"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.29.0",
+    "@types/node": "^24.0.3",
+    "eslint": "^9.29.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.34.1",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="echo-gradient" x1="230" y1="200" x2="800" y2="830" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C5CFF"/>
+      <stop offset=".52" stop-color="#3DA5FF"/>
+      <stop offset="1" stop-color="#63E6E9"/>
+    </linearGradient>
+  </defs>
+  <g stroke="url(#echo-gradient)" stroke-width="76" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M766 694A350 350 0 1 1 744 282"/>
+    <path d="M648 672A202 202 0 1 1 635 366"/>
+    <path d="m356 555 238-55"/>
+  </g>
+</svg>

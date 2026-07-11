@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Echo",
+  "version": "0.1.0",
+  "identifier": "app.luma.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Echo",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 360,
+        "minHeight": 620,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' http://127.0.0.1:43117"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "dmg", "app"],
+    "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"],
+    "publisher": "Echo",
+    "shortDescription": "Your personal AI companion",
+    "category": "Productivity",
+    "externalBin": ["binaries/luma-sidecar"]
+  }
+}

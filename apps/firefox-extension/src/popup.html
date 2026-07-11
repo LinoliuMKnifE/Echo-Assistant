@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Echo</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="popup">
+    <header>
+      <h1>Echo</h1>
+      <p id="status" role="status">Checking connection…</p>
+    </header>
+    <form id="pair-form" hidden>
+      <label for="token">Pairing token from Echo Settings</label
+      ><input
+        id="token"
+        name="token"
+        type="password"
+        autocomplete="off"
+        minlength="32"
+        maxlength="128"
+        required
+      /><button type="submit">Pair desktop app</button
+      ><small>The token stays inside Firefox and is never sent to OpenAI.</small>
+    </form>
+    <main id="actions" hidden>
+      <button data-mode="selected_text">Send selected text</button
+      ><button data-mode="current_page">Ask about this page</button
+      ><button data-mode="full_page_text">Send full page text</button
+      ><button data-mode="screenshot">Send visible screenshot</button
+      ><button id="open-sidebar">Open sidebar chat</button
+      ><button id="open-desktop">Open Echo desktop</button>
+      <p class="notice">Page content is sent only when you choose an action.</p>
+    </main>
+    <script src="dist/popup.js"></script>
+  </body>
+</html>

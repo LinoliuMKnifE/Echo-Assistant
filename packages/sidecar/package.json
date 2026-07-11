@@ -1,0 +1,27 @@
+{
+  "name": "@luma/sidecar",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run && node --test scripts/package-validation.mjs",
+    "package": "tsc -p tsconfig.json && node scripts/package.mjs",
+    "package:windows": "tsc -p tsconfig.json && node scripts/package.mjs --target x86_64-pc-windows-msvc",
+    "package:macos:x64": "tsc -p tsconfig.json && node scripts/package.mjs --target x86_64-apple-darwin",
+    "package:macos:arm64": "tsc -p tsconfig.json && node scripts/package.mjs --target aarch64-apple-darwin",
+    "package:validate": "node scripts/package.mjs --validate"
+  },
+  "dependencies": {
+    "@luma/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.21.0",
+    "esbuild": "0.25.12",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

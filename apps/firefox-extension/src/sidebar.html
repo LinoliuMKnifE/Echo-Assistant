@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Echo chat</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="sidebar">
+    <header>
+      <h1>Echo chat</h1>
+      <p id="connection" role="status">Checking connection…</p>
+    </header>
+    <main id="transcript" aria-live="polite">
+      <div class="message assistant">
+        Ask Echo a question, or explicitly share selected text from the active page.
+      </div>
+    </main>
+    <form id="chat-form">
+      <label class="sr-only" for="message">Message Echo</label
+      ><textarea id="message" maxlength="20000" placeholder="Message Echo" required></textarea>
+      <div class="row">
+        <button id="share-selection" type="button">Share selection</button
+        ><button type="submit">Send</button>
+      </div>
+    </form>
+    <script src="dist/sidebar.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+node_modules/
+**/dist/
+**/build/
+**/artifacts/
+**/target/
+**/playwright-report/
+**/test-results/
+**/*.tsbuildinfo
+pnpm-lock.yaml
+graphify-out/
+apps/desktop/src-tauri/gen/
