@@ -155,7 +155,9 @@ try {
     $cleanupVerifierCredentials = $true
     Invoke-UiButton $app 'Open Echo'
     if (-not (Wait-UiElement $app { $_.Current.Name -eq 'Search everything' -and $_.Current.ControlType -eq [Windows.Automation.ControlType]::Edit })) {
-      throw "Completing onboarding did not open the main Echo workspace. Visible UI: $(Get-UiState $app)"
+      $setupError = Wait-UiElement $app { $_.Current.AutomationId -eq 'key-error' } 1
+      $detail = if ($setupError) { $setupError.Current.Name } else { Get-UiState $app }
+      throw "Completing onboarding did not open the main Echo workspace. Visible UI: $detail"
     }
     if (-not [EchoReleaseCredential]::Exists('echo-onboarding-v1.app.luma.desktop')) {
       throw 'Native echo-onboarding-v1 completion marker was not stored.'
