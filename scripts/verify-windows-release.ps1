@@ -55,8 +55,10 @@ function Wait-UiElement($Process, [scriptblock]$Match, [int]$Seconds = 20) {
   $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
   do {
     $Process.Refresh()
-    if ($Process.MainWindowHandle) {
-      $root = [Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
+    $handle = $Process.MainWindowHandle
+    if ($handle) {
+      try { $root = [Windows.Automation.AutomationElement]::FromHandle($handle) }
+      catch { Start-Sleep -Milliseconds 250; continue }
       $found = $root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
         Where-Object $Match | Select-Object -First 1
       if ($found) { return $found }
@@ -67,8 +69,10 @@ function Wait-UiElement($Process, [scriptblock]$Match, [int]$Seconds = 20) {
 }
 function Get-UiState($Process) {
   $Process.Refresh()
-  if (-not $Process.MainWindowHandle) { return '<no main window>' }
-  $root = [Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
+  $handle = $Process.MainWindowHandle
+  if (-not $handle) { return '<no main window>' }
+  try { $root = [Windows.Automation.AutomationElement]::FromHandle($handle) }
+  catch { return '<window unavailable>' }
   return (($root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
       ForEach-Object { "$($_.Current.ControlType.ProgrammaticName):$($_.Current.Name)" } |
       Where-Object { $_ -notlike '*:' } | Select-Object -Unique -First 40) -join ' | ')
