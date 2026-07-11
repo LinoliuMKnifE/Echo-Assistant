@@ -216,7 +216,7 @@ export class LumaApplicationService {
       Row | undefined;
     if (!row) return null;
     const messages = this.db
-      .prepare('SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,id')
+      .prepare('SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,rowid')
       .all(idValue) as Row[];
     return { conversation: mapConversation(row), messages: messages.map(mapMessage) };
   }
