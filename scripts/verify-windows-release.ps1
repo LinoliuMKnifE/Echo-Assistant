@@ -71,7 +71,7 @@ function Get-UiState($Process) {
   $root = [Windows.Automation.AutomationElement]::FromHandle($Process.MainWindowHandle)
   return (($root.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition) |
       ForEach-Object { "$($_.Current.ControlType.ProgrammaticName):$($_.Current.Name)" } |
-      Where-Object { $_ -notlike '*:' } | Select-Object -Unique -First 20) -join ' | ')
+      Where-Object { $_ -notlike '*:' } | Select-Object -Unique -First 40) -join ' | ')
 }
 function Invoke-UiButton($Process, [string]$Name) {
   $button = Wait-UiElement $Process { $_.Current.Name -eq $Name -and $_.Current.ControlType -eq [Windows.Automation.ControlType]::Button }
@@ -156,7 +156,11 @@ try {
     Invoke-UiButton $app 'Open Echo'
     if (-not (Wait-UiElement $app { $_.Current.Name -eq 'Search everything' -and $_.Current.ControlType -eq [Windows.Automation.ControlType]::Edit })) {
       $setupError = Wait-UiElement $app { $_.Current.AutomationId -eq 'key-error' } 1
-      $detail = if ($setupError) { $setupError.Current.Name } else { Get-UiState $app }
+      $detail = if ($setupError) {
+              ($setupError.FindAll([Windows.Automation.TreeScope]::Subtree, [Windows.Automation.Condition]::TrueCondition) |
+                ForEach-Object Current | ForEach-Object Name | Where-Object { $_ } | Select-Object -Unique) -join ' | '
+            } else { Get-UiState $app }
+            if (-not $detail) { $detail = Get-UiState $app }
       throw "Completing onboarding did not open the main Echo workspace. Visible UI: $detail"
     }
     if (-not [EchoReleaseCredential]::Exists('echo-onboarding-v1.app.luma.desktop')) {
