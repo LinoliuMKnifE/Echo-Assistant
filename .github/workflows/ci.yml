@@ -55,7 +55,9 @@ jobs:
       - name: Smoke-test unsigned Windows MSI
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./scripts/verify-windows-release.ps1 -AllowUnsigned -CleanAccountConfirmed -MsiPath (Get-ChildItem apps/desktop/src-tauri/target/release/bundle/msi/Echo_*.msi | Select-Object -First 1 -ExpandProperty FullName)
+        run: |
+          $version = node -p "require('./package.json').version"
+          ./scripts/verify-windows-release.ps1 -AllowUnsigned -CleanAccountConfirmed -ExpectedVersion $version -MsiPath (Get-ChildItem apps/desktop/src-tauri/target/release/bundle/msi/Echo_*.msi | Select-Object -First 1 -ExpandProperty FullName)
       - name: Package macOS application and DMG
         if: runner.os == 'macOS'
         run: pnpm --filter @echo/desktop tauri build --bundles app,dmg
